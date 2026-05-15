@@ -1,0 +1,10 @@
+# Credentials
+.env
+*.env.local
+
+# Environment
+.claude/
+
+# Python
+__pycache__/
+*.pyc
