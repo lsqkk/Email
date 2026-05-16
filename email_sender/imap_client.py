@@ -59,6 +59,19 @@ def _connect_imap(
             timeout=IMAP_TIMEOUT,
         )
         mail.login(email_address, password)
+
+        # Send IMAP ID command (RFC 2971) — required by some providers
+        # (e.g. 163.com) to whitelist the client before folder access.
+        try:
+            imaplib.Commands['ID'] = ('AUTH',)
+            mail._simple_command(
+                'ID',
+                '("name" "ClaudeMail" "version" "1.0.0" '
+                '"vendor" "Python" "support-email" "' + email_address + '")'
+            )
+        except Exception:
+            pass
+
         return mail
     except imaplib.IMAP4.error as e:
         logger.error("IMAP connection failed: %s", e)
