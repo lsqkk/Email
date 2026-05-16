@@ -32,7 +32,7 @@ from email_sender import (
     send_email, send_batch,
     sync_contacts_from_sent, read_inbox,
     append_send_log, show_send_log,
-    is_valid_email, validate_attachment,
+    is_valid_email, validate_attachment, get_password,
 )
 
 # =============================================================================
@@ -323,7 +323,8 @@ def main() -> None:
     # Resolve account → sender credentials
     account = get_account_config(config, args.account)
     sender = args.sender or account.get("EMAIL_ADDRESS") or os.environ.get("EMAIL_ADDRESS")
-    password = account.get("EMAIL_PASSWORD") or os.environ.get("EMAIL_PASSWORD")
+    env_password = account.get("EMAIL_PASSWORD") or os.environ.get("EMAIL_PASSWORD")
+    password = get_password(sender, env_password) if sender else env_password
 
     if not sender or not password:
         msg = "No credentials configured. Run with --interactive to set up."

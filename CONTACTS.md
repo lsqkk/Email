@@ -3,6 +3,7 @@
 ## 概述
 
 联系人存储在 `contacts.json` 文件（已 gitignore），格式为 `{"名称": "邮箱"}`。
+读写使用文件锁（`contacts.json.lock`），多进程并发安全。
 
 **首次使用前请复制 `contacts.json.example` 为 `contacts.json`**（或首次保存联系人时自动创建）。
 
@@ -25,9 +26,15 @@ python send_email.py --auto-save-contact "张三" "zhangsan@qq.com"
 联系人保存后，可通过姓名直接发送：
 
 ```bash
-# 通过联系人名称发送
+# 通过联系人名称发送（支持模糊匹配）
 python send_email.py --contact "张三" -s "你好" -b "好久不见"
+
+# 精确匹配（避免模糊匹配误发给同名联系人）
+python send_email.py --contact "张三" --contact-exact -s "你好" -b "好久不见"
 ```
+
+> **注意**：`--contact` 优先精确匹配，若未精确匹配则进行大小写不敏感模糊匹配。
+> 多个模糊匹配结果会发出告警，不静默选择。使用 `--contact-exact` 可禁用模糊匹配。
 
 ### 管理联系人
 
@@ -45,6 +52,7 @@ python send_email.py --sync-contacts
 ### 智能联系人解析
 
 脚本支持模糊匹配：如果联系人名称不完整，会自动尝试部分匹配。
+匹配优先级：**精确匹配 > 模糊匹配**。多个模糊匹配时告警。
 
 ## 联系人自动保存规则
 
@@ -67,8 +75,14 @@ python send_email.py --sync-contacts
 要实现完整的通讯录同步，需要各邮箱提供商的 API（如 Google People API、Microsoft Graph API），
 这些需要 OAuth 认证，超出当前纯 SMTP 工具的范围。
 
+IMAP 连接的注意事项：
+- 使用文件锁确保联系人文件并发安全
+- 仅扫描最近一个月的已发送邮件
+- 最多提取 50 封以避免超时（IMAP 超时时间 30s）
+
 ## 注意事项
 
 - `contacts.json` 已加入 `.gitignore`，不会被提交到 Git
+- `contacts.json.lock` 锁文件在操作完成后自动删除
 - 建议定期备份 `contacts.json`
 - 联系人在发送邮件时自动解析，大小写不敏感模糊匹配

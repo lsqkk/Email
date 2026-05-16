@@ -109,6 +109,83 @@ PROVIDERS: dict[str, ProviderInfo] = {
 
 DEFAULT_PROVIDER = "163"
 
+# =============================================================================
+# Optional keyring support — no dependency required
+# =============================================================================
+
+try:
+    import keyring as _keyring
+    import keyring.errors as _keyring_errors
+
+    HAS_KEYRING = True
+
+    def _get_keyring_password(service: str, username: str) -> str | None:
+        """Retrieve a password from the system keychain."""
+        try:
+            return _keyring.get_password(service, username)
+        except _keyring_errors.KeyringError:
+            return None
+
+    def _set_keyring_password(service: str, username: str, password: str) -> bool:
+        """Store a password in the system keychain."""
+        try:
+            _keyring.set_password(service, username, password)
+            return True
+        except _keyring_errors.KeyringError:
+            return False
+
+    def _delete_keyring_password(service: str, username: str) -> bool:
+        """Delete a password from the system keychain."""
+        try:
+            _keyring.delete_password(service, username)
+            return True
+        except _keyring_errors.KeyringError:
+            return False
+
+except ImportError:
+    HAS_KEYRING = False
+
+    def _get_keyring_password(service: str, username: str) -> str | None:
+        return None
+
+    def _set_keyring_password(service: str, username: str, password: str) -> bool:
+        return False
+
+    def _delete_keyring_password(service: str, username: str) -> bool:
+        return False
+
+
+def get_password(
+    email: str,
+    env_password: str | None = None,
+    service: str = "email-sender",
+) -> str | None:
+    """Get password from keyring (preferred) or env as fallback.
+
+    If keyring is available and has a password for this email, use it.
+    Otherwise fall back to the env-provided password.
+    """
+    if HAS_KEYRING:
+        kr_pass = _get_keyring_password(service, email)
+        if kr_pass:
+            return kr_pass
+    return env_password
+
+
+def set_password(
+    email: str,
+    password: str,
+    service: str = "email-sender",
+) -> bool:
+    """Store a password in the system keychain.
+
+    Returns True if stored via keyring, False if keyring unavailable
+    (caller should fall back to .env storage).
+    """
+    if HAS_KEYRING:
+        return _set_keyring_password(service, email, password)
+    return False
+
 
 # =============================================================================
 # Config Loading

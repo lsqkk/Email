@@ -9,6 +9,9 @@ from email_sender.config import (
     list_accounts,
     list_providers,
     validate_config,
+    get_password,
+    set_password,
+    HAS_KEYRING,
     PROVIDERS,
 )
 from email_sender.contacts import (
@@ -29,7 +32,8 @@ from email_sender.utils import is_valid_email, validate_attachment
 __all__ = [
     "SendRequest", "SendResult", "EmailConfig", "ProviderInfo",
     "load_config", "resolve_smtp_settings", "resolve_imap_settings",
-    "get_account_config", "list_accounts", "list_providers", "validate_config", "PROVIDERS",
+    "get_account_config", "list_accounts", "list_providers", "validate_config",
+    "get_password", "set_password", "HAS_KEYRING", "PROVIDERS",
     "load_contacts", "save_contacts", "add_contact", "delete_contact",
     "list_contacts", "find_contact", "auto_save_contact",
     "TEMPLATES", "apply_template", "list_templates",
