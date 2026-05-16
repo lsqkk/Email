@@ -25,12 +25,12 @@ from typing import Optional
 from email_sender import (
     PROVIDERS, TEMPLATES,
     load_config, validate_config, get_account_config,
-    resolve_smtp_settings, resolve_imap_settings,
+    resolve_smtp_settings, resolve_imap_settings, resolve_pop3_settings,
     list_accounts, list_providers, list_templates,
     add_contact, delete_contact, list_contacts, find_contact, auto_save_contact,
     apply_template,
     send_email, send_batch,
-    sync_contacts_from_sent, read_inbox,
+    sync_contacts_from_sent, read_inbox, read_inbox_pop3,
     append_send_log, show_send_log,
     is_valid_email, validate_attachment, get_password,
 )
@@ -153,12 +153,14 @@ def build_parser() -> argparse.ArgumentParser:
     contact_cmds.add_argument("--auto-save-contact", nargs=2, metavar=("NAME", "EMAIL"),
                               help="Automatically save contact (without overwrite warning)")
 
-    # ── IMAP operations ──────────────────────────────────────────────────
-    imap = parser.add_argument_group("IMAP Operations")
+    # ── IMAP/POP3 operations ──────────────────────────────────────────────
+    imap = parser.add_argument_group("IMAP/POP3 Operations")
     imap.add_argument("--sync-contacts", action="store_true",
                       help="Scan IMAP sent folder to build contacts (experimental)")
     imap.add_argument("--read-inbox", nargs="?", type=int, const=10, default=None,
-                      help="Read recent emails from IMAP inbox (optionally specify count)")
+                      help="Read recent emails from inbox (optionally specify count)")
+    imap.add_argument("--protocol", choices=["imap", "pop3"], default=None,
+                      help="Protocol for inbox reading (default: imap, fallback to pop3 if imap fails)")
 
     # ── Info commands ────────────────────────────────────────────────────
     info = parser.add_argument_group("Information")
@@ -277,18 +279,40 @@ def main() -> None:
         password = account.get("EMAIL_PASSWORD")
         provider_override = args.provider or account.get("EMAIL_PROVIDER")
         if not sender or not password:
-            msg = "Credentials required for IMAP inbox read. Configure .env first."
+            msg = "Credentials required for inbox read. Configure .env first."
             if args.json:
                 _json_exit({"success": False, "message": msg}, 1)
             print(f"[!] {msg}")
             sys.exit(1)
 
-        logger.info("Reading inbox for %s (last %d emails)...", sender, args.read_inbox)
-        emails = read_inbox(
-            sender, password,
-            max_emails=args.read_inbox,
-            provider_key=provider_override,
-        )
+        # Determine protocol: explicit flag, or auto (try imap first, fallback pop3)
+        use_imap = True  # default
+        if args.protocol == "pop3":
+            use_imap = False
+
+        if use_imap:
+            logger.info("Reading inbox for %s (IMAP, last %d emails)...", sender, args.read_inbox)
+            emails = read_inbox(
+                sender, password,
+                max_emails=args.read_inbox,
+                provider_key=provider_override,
+            )
+            # IMAP failed AND no explicit protocol was set → auto-fallback to POP3
+            if not emails and args.protocol is None:
+                logger.info("IMAP returned no results, falling back to POP3...")
+                emails = read_inbox_pop3(
+                    sender, password,
+                    max_emails=args.read_inbox,
+                    provider_key=provider_override,
+                )
+        else:
+            logger.info("Reading inbox for %s (POP3, last %d emails)...", sender, args.read_inbox)
+            emails = read_inbox_pop3(
+                sender, password,
+                max_emails=args.read_inbox,
+                provider_key=provider_override,
+            )
+
         if args.json:
             _json_exit({"success": True, "emails": emails})
         if not emails:
@@ -300,6 +324,8 @@ def main() -> None:
                 preview = str(em['body_preview'])[:120]
                 if preview:
                     print(f"     {preview}")
+                if em.get('attachments'):
+                    print(f"     Attachments: {', '.join(em['attachments'])}")
                 print()
         return
 

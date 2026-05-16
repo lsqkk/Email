@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 from typing import Any, Optional
 
-from email_sender.types import ProviderInfo, SmtpSettings, ImapSettings, EmailConfig
+from email_sender.types import ProviderInfo, SmtpSettings, ImapSettings, Pop3Settings, EmailConfig
 
 # =============================================================================
 # File Paths
@@ -23,86 +23,103 @@ PROVIDERS: dict[str, ProviderInfo] = {
     "163": ProviderInfo(
         name="163邮箱", smtp_server="smtp.163.com", smtp_port=465, use_ssl=True,
         imap_server="imap.163.com", imap_port=993,
+        pop3_server="pop.163.com", pop3_port=995,
         auth_note="需要SMTP授权码（登录 webmail → 设置 → POP3/SMTP/IMAP → 开启SMTP服务生成）",
     ),
     "qq": ProviderInfo(
         name="QQ邮箱", smtp_server="smtp.qq.com", smtp_port=465, use_ssl=True,
         imap_server="imap.qq.com", imap_port=993,
+        pop3_server="pop.qq.com", pop3_port=995,
         auth_note="需要SMTP授权码（设置 → 账户 → POP3/SMTP服务 → 生成授权码）",
     ),
     "qq_ex": ProviderInfo(
         name="QQ企业邮箱", smtp_server="smtp.exmail.qq.com", smtp_port=465, use_ssl=True,
         imap_server="imap.exmail.qq.com", imap_port=993,
+        pop3_server=None, pop3_port=995,
         auth_note="需要SMTP授权码",
     ),
     "gmail": ProviderInfo(
         name="Gmail", smtp_server="smtp.gmail.com", smtp_port=587, use_ssl=False,
         imap_server="imap.gmail.com", imap_port=993,
+        pop3_server="pop.gmail.com", pop3_port=995,
         auth_note="需要Google App Password（开启两步验证后在Google账号安全设置中生成）",
     ),
     "outlook": ProviderInfo(
         name="Outlook / Hotmail", smtp_server="smtp.office365.com", smtp_port=587, use_ssl=False,
         imap_server="outlook.office365.com", imap_port=993,
+        pop3_server="outlook.office365.com", pop3_port=995,
         auth_note="需要应用密码或OAuth2认证",
     ),
     "yahoo": ProviderInfo(
         name="Yahoo邮箱", smtp_server="smtp.mail.yahoo.com", smtp_port=465, use_ssl=True,
         imap_server="imap.mail.yahoo.com", imap_port=993,
+        pop3_server="pop.mail.yahoo.com", pop3_port=995,
         auth_note="需要App Password",
     ),
     "126": ProviderInfo(
         name="126邮箱", smtp_server="smtp.126.com", smtp_port=465, use_ssl=True,
         imap_server="imap.126.com", imap_port=993,
+        pop3_server="pop.126.com", pop3_port=995,
         auth_note="需要SMTP授权码",
     ),
     "sina": ProviderInfo(
         name="新浪邮箱", smtp_server="smtp.sina.com.cn", smtp_port=465, use_ssl=True,
         imap_server="imap.sina.com.cn", imap_port=993,
+        pop3_server="pop.sina.com.cn", pop3_port=995,
         auth_note="需要SMTP授权码",
     ),
     "aliyun": ProviderInfo(
         name="阿里企业邮箱", smtp_server="smtp.qiye.aliyun.com", smtp_port=465, use_ssl=True,
         imap_server="imap.qiye.aliyun.com", imap_port=993,
+        pop3_server=None, pop3_port=995,
         auth_note="需要SMTP密码",
     ),
     "foxmail": ProviderInfo(
         name="Foxmail邮箱", smtp_server="smtp.foxmail.com", smtp_port=465, use_ssl=True,
         imap_server="imap.foxmail.com", imap_port=993,
+        pop3_server="pop.foxmail.com", pop3_port=995,
         auth_note="需要SMTP授权码",
     ),
     "sohu": ProviderInfo(
         name="搜狐邮箱", smtp_server="smtp.sohu.com", smtp_port=465, use_ssl=True,
         imap_server=None, imap_port=993,
+        pop3_server="pop.sohu.com", pop3_port=995,
         auth_note="需要SMTP授权码",
     ),
     "yeah": ProviderInfo(
         name="Yeah.net邮箱", smtp_server="smtp.yeah.net", smtp_port=465, use_ssl=True,
         imap_server="imap.yeah.net", imap_port=993,
+        pop3_server="pop.yeah.net", pop3_port=995,
         auth_note="需要SMTP授权码",
     ),
     "zoho": ProviderInfo(
         name="Zoho邮箱", smtp_server="smtp.zoho.com", smtp_port=587, use_ssl=False,
         imap_server=None, imap_port=993,
+        pop3_server=None, pop3_port=995,
         auth_note="需要App Password",
     ),
     "aol": ProviderInfo(
         name="AOL邮箱", smtp_server="smtp.aol.com", smtp_port=587, use_ssl=False,
         imap_server=None, imap_port=993,
+        pop3_server=None, pop3_port=995,
         auth_note="需要App Password",
     ),
     "yandex": ProviderInfo(
         name="Yandex邮箱", smtp_server="smtp.yandex.com", smtp_port=465, use_ssl=True,
         imap_server="imap.yandex.com", imap_port=993,
+        pop3_server=None, pop3_port=995,
         auth_note="需要App Password",
     ),
     "139": ProviderInfo(
         name="139邮箱（移动）", smtp_server="smtp.139.com", smtp_port=465, use_ssl=True,
         imap_server=None, imap_port=993,
+        pop3_server=None, pop3_port=995,
         auth_note="需要SMTP密码",
     ),
     "189": ProviderInfo(
         name="189邮箱（电信）", smtp_server="smtp.189.cn", smtp_port=465, use_ssl=True,
         imap_server=None, imap_port=993,
+        pop3_server=None, pop3_port=995,
         auth_note="需要SMTP密码",
     ),
 }
@@ -239,7 +256,7 @@ def load_config() -> dict[str, Any]:
         line = line.strip()
         if not line or line.startswith("#"):
             continue
-        m = re.match(r'^\[account:(\w+)\]$', line)
+        m = re.match(r'^\[account:([\w-]+)\]$', line)
         if m:
             current_account = m.group(1)
             accounts[current_account] = {}
@@ -350,6 +367,33 @@ def resolve_imap_settings(
     return ImapSettings(imap_server=provider.imap_server, imap_port=provider.imap_port)
 
 
+def resolve_pop3_settings(
+    config: dict[str, Any],
+    provider_override: Optional[str] = None,
+) -> Optional[Pop3Settings]:
+    """Resolve POP3 server/port from provider presets."""
+    provider_key = (
+        provider_override
+        or config.get("EMAIL_PROVIDER")
+        or DEFAULT_PROVIDER
+    )
+
+    if "POP3_SERVER" in config:
+        return Pop3Settings(
+            pop3_server=config["POP3_SERVER"],
+            pop3_port=int(config.get("POP3_PORT", 995)),
+        )
+
+    provider = PROVIDERS.get(provider_key)
+    if not provider:
+        return None
+
+    if not provider.pop3_server:
+        return None
+
+    return Pop3Settings(pop3_server=provider.pop3_server, pop3_port=provider.pop3_port)
+
+
 def get_account_config(
     config: dict[str, Any],
     account_name: Optional[str] = None,
@@ -403,13 +447,14 @@ def list_accounts() -> str:
 def list_providers() -> str:
     """Return formatted provider list."""
     lines: list[str] = [
-        f"{'Key':<12} {'Name':<20} {'SMTP Server':<30} {'Port':<8} {'IMAP':<30}",
-        "-" * 110,
+        f"{'Key':<12} {'Name':<20} {'SMTP Server':<30} {'Port':<8} {'IMAP':<30} {'POP3':<30}",
+        "-" * 140,
     ]
     for key in sorted(PROVIDERS):
         p = PROVIDERS[key]
         imap = p.imap_server or "-"
+        pop3 = p.pop3_server or "-"
         lines.append(
-            f"{key:<12} {p.name:<20} {p.smtp_server:<30} {p.smtp_port:<8} {imap:<30}"
+            f"{key:<12} {p.name:<20} {p.smtp_server:<30} {p.smtp_port:<8} {imap:<30} {pop3:<30}"
         )
     return "\n".join(lines)

@@ -8,13 +8,15 @@ from typing import Optional
 
 @dataclass
 class ProviderInfo:
-    """SMTP/IMAP provider preset."""
+    """SMTP/IMAP/POP3 provider preset."""
     name: str
     smtp_server: str
     smtp_port: int
     use_ssl: bool
     imap_server: Optional[str] = None
     imap_port: int = 993
+    pop3_server: Optional[str] = None
+    pop3_port: int = 995
     auth_note: str = ""
 
 
@@ -32,6 +34,13 @@ class ImapSettings:
     """Resolved IMAP connection settings."""
     imap_server: str
     imap_port: int
+
+
+@dataclass
+class Pop3Settings:
+    """Resolved POP3 connection settings."""
+    pop3_server: str
+    pop3_port: int
 
 
 @dataclass
