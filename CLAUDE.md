@@ -1,182 +1,140 @@
-# Email Sender — Auto Email Tool
+# Email Sender — CLAUDE Code 项目指南
 
-A Python-based email sending tool via SMTP. Supports 17+ email providers, contacts system,
-CC/BCC, email templates, and send history log. Zero third-party dependencies.
+> 此文件面向接管本项目的新 AGENT。阅读此文件后你应能理解项目结构、编码约束和工作流程。
 
-## Project Overview
+## 项目定位
 
-| Item | Value |
-|------|-------|
-| Location | `D:/git/lsqkk/Email/` |
-| Script | `send_email.py` (pure Python, no third-party deps) |
-| Default Sender | jsxzznz@163.com |
-| Default Provider | 163.com |
-| Credentials | `.env` file (gitignored) |
-| Contacts | `contacts.json` file (gitignored) |
+**SMTP CLI 工具**，专为其他 AGENT（包括 Claude Code）调用而设计。不是独立的邮件客户端，不是邮件服务器。
 
-## How to Use in Claude
+核心原则：
+- **零第三方依赖** — 仅 Python 3.10+ 标准库
+- **机器可解析输出** — 所有操作支持 `--json` 模式
+- **失败可观测** — 规范化退出码，结构化错误信息
 
-### Basic Send
+## 目录结构
+
+```
+Email/
+├── send_email.py              # CLI 入口（薄层，仅参数解析+分发）
+├── email_sender/              # 核心包
+│   ├── __init__.py            # 公共 API 导出
+│   ├── types.py               # 类型定义（SendRequest, SendResult 等 dataclass）
+│   ├── config.py              # 配置加载 + 17个邮箱提供商预设
+│   ├── contacts.py            # 联系人 CRUD + 文件锁并发安全
+│   ├── templates.py           # 邮件模板（5个内置模板 + 缺失参数检测）
+│   ├── smtp_client.py         # SMTP 核心（发信/批量/HTML双渲染/重试/附件校验）
+│   ├── imap_client.py         # IMAP 操作（收件箱读取/联系人同步）
+│   ├── log.py                 # 发送记录 CSV + 自动轮转
+│   └── utils.py               # 校验/格式化/HTML转纯文本
+├── tests/                     # pytest 测试
+│   ├── test_config.py
+│   ├── test_contacts.py
+│   ├── test_templates.py
+│   ├── test_log.py
+│   └── test_utils.py
+├── .env                       # 凭据（gitignored）
+├── .env.example               # 配置模板
+├── contacts.json              # 联系人（gitignored）
+├── send_log.csv               # 发送记录（gitignored）
+├── TODO.md                    # 重构待办
+├── CLAUDE.md                  # 本文件
+└── README.md                  # 对外展示文档
+```
+
+## 编码约束
+
+### 类型注解
+
+所有函数必须有完整类型注解。新增函数必须：
+- 所有参数有 type hint
+- 返回值有 type hint
+- 复杂数据结构用 dataclass 而非裸 dict
+
+```python
+# ✅ 正确
+def send_email(sender: str, password: str, recipient: str, ...) -> SendResult: ...
+
+# ❌ 错误
+def send_email(sender, password, recipient, ...):
+```
+
+### 日志
+
+**禁止使用 `print()` 输出运行时信息。** 一律使用 `logging` 模块：
+- `logging.info()` — 正常流程信息
+- `logging.warning()` — 可恢复的问题
+- `logging.error()` — 不可恢复的错误
+- `logging.debug()` — 调试用详细输出
+
+`print()` 仅在两种场景允许：
+1. CLI 的 `--help` 输出（argparse 自动处理）
+2. `--dry-run` 模式的人类可读输出
+
+### 测试
+
+- 新增功能必须有对应测试
+- 测试使用 pytest，放在 `tests/` 目录
+- 覆盖联系人 CRUD、模板渲染、校验逻辑
+- SMTP 测试使用 mock，不连真实服务器
+
+### 错误处理
+
+- 校验类错误（参数缺失、附件超限）：退出码 **2**
+- 发送类错误（SMTP 拒绝、认证失败）：退出码 **1**
+- 所有错误应同时支持人类可读和 `--json` 两种输出
+
+### 不可变性
+
+- 函数参数不修改（no mutation）
+- 联系人、配置等数据结构读写分离
+- 文件操作使用上下文管理器
+
+## 联系人系统
+
+- 联系人存储在 `contacts.json`（已 gitignore）
+- 读写使用文件锁（`contacts.json.lock`），并发安全
+- `find_contact()` 优先精确匹配，再大小写不敏感模糊匹配
+- 多个模糊匹配结果发出警告，不静默选择
+
+## 关键 API 速查
+
+```python
+from email_sender import send_email, send_batch, read_inbox, load_config
+
+# 单发
+result = send_email(sender="a@163.com", password="xxx", recipient="b@qq.com",
+                    subject="Hi", body="Hello", body_html="<h1>Hello</h1>")
+
+# 批量
+result = send_batch(sender="a@163.com", password="xxx",
+                    recipients=["b@qq.com", "c@qq.com"],
+                    subject="通知", body="正文", throttle=0.5)
+
+# 读取收件箱
+emails = read_inbox("a@163.com", "xxx", max_emails=5)
+
+# 结果解析
+print(result.success, result.message, result.detail)
+```
+
+## 常见开发任务
 
 ```bash
-python D:/git/lsqkk/Email/send_email.py --to <recipient> -s "<subject>" -b "<body>"
+# 运行测试
+python -m pytest tests/ -v
+
+# 运行测试+覆盖率
+python -m pytest tests/ --cov=email_sender
+
+# 测试发信
+python send_email.py --dry-run --to test@test.com -s "测试" -b "正文"
+
+# 真实发信
+python send_email.py --to friend@example.com -s "你好" -b "好久不见"
 ```
 
-### With Contact Name
+## 相关文件
 
-```bash
-# First save the contact
-python D:/git/lsqkk/Email/send_email.py --save-contact "张三" "zhangsan@qq.com"
-
-# Then send by name
-python D:/git/lsqkk/Email/send_email.py --contact 张三 -s "你好" -b "好久不见"
-```
-
-### With Attachments
-
-```bash
-python D:/git/lsqkk/Email/send_email.py --to <recipient> -s "<subject>" -b "<body>" -a <file1> -a <file2>
-```
-
-### With CC/BCC
-
-```bash
-python D:/git/lsqkk/Email/send_email.py --to user@example.com --cc manager@example.com -s "Report" -b "Content"
-```
-
-### Using Email Templates
-
-```bash
-# Available: greeting, meeting, report, notice, thankyou
-python D:/git/lsqkk/Email/send_email.py --template meeting -p topic=周会 -p time="下午2点" -p location=会议室A
-```
-
-### With a Specific Account (from .env)
-
-```bash
-# Use the default account (DEFAULT_ACCOUNT in .env)
-python D:/git/lsqkk/Email/send_email.py --to friend@example.com -s "Hi" -b "Body"
-
-# Use a named account
-python D:/git/lsqkk/Email/send_email.py --account qq --to friend@qq.com -s "你好" -b "正文"
-
-# List all configured accounts
-python D:/git/lsqkk/Email/send_email.py --list-accounts
-```
-
-### With a Different Provider
-
-```bash
-python D:/git/lsqkk/Email/send_email.py --to user@gmail.com -s "Hi" -b "Body" --provider gmail
-```
-
-### Send History
-
-```bash
-python D:/git/lsqkk/Email/send_email.py --send-log
-```
-
-### Interactive Mode
-
-```bash
-python D:/git/lsqkk/Email/send_email.py -i
-```
-
-## ⚠️ MUST READ: Contacts System
-
-**Before sending emails using this tool, you MUST read `CONTACTS.md`** for details on:
-- Saving contacts
-- Sending by contact name
-- Auto-saving contacts when users provide names and emails
-- Managing contacts
-
-The `CONTACTS.md` file is located at: `D:/git/lsqkk/Email/CONTACTS.md`
-
-## Supported Providers (17 total)
-
-| Provider | Key | SMTP | Port |
-|----------|-----|------|------|
-| 163邮箱 (DEFAULT) | `163` | smtp.163.com | 465 |
-| QQ邮箱 | `qq` | smtp.qq.com | 465 |
-| QQ企业邮箱 | `qq_ex` | smtp.exmail.qq.com | 465 |
-| 126邮箱 | `126` | smtp.126.com | 465 |
-| Gmail | `gmail` | smtp.gmail.com | 587 |
-| Outlook/Hotmail | `outlook` | smtp.office365.com | 587 |
-| Yahoo邮箱 | `yahoo` | smtp.mail.yahoo.com | 465 |
-| 新浪邮箱 | `sina` | smtp.sina.com.cn | 465 |
-| 阿里企业邮箱 | `aliyun` | smtp.qiye.aliyun.com | 465 |
-| Foxmail | `foxmail` | smtp.foxmail.com | 465 |
-| 搜狐邮箱 | `sohu` | smtp.sohu.com | 465 |
-| Yeah.net | `yeah` | smtp.yeah.net | 465 |
-| 139邮箱 | `139` | smtp.139.com | 465 |
-| 189邮箱 | `189` | smtp.189.cn | 465 |
-| Zoho | `zoho` | smtp.zoho.com | 587 |
-| AOL | `aol` | smtp.aol.com | 587 |
-| Yandex | `yandex` | smtp.yandex.com | 465 |
-
-List all: `python send_email.py --list-providers`
-
-## Natural Language Triggers
-
-| User says | Action |
-|-----------|--------|
-| "帮我发邮件给 xxx" | Send email via SMTP |
-| "给 xxx 发封邮件，主题是..." | Full email with subject and body |
-| "发邮件带附件" | Use `-a` flag for attachments |
-| "发邮件抄送给 xxx" | Use `--cc` flag |
-| "用模板发个会议通知" | Use `--template meeting` |
-| "给张三发邮件" | Resolve from contacts via `--contact` |
-| "保存张三的邮箱" | Use `--save-contact` |
-| "测试发邮件" | Send a test to jsxzznz@163.com |
-| "查发送记录" | Use `--send-log` |
-
-## Command Reference
-
-```text
-Usage: send_email.py [recipient] [options]
-
-Recipient:
-  --to EMAIL           Recipient email address
-  --contact NAME       Send to a saved contact by name
-  --cc EMAIL           Carbon copy (can be used multiple times)
-  --bcc EMAIL          Blind carbon copy (can be used multiple times)
-
-Email Content:
-  -s, --subject TEXT   Email subject
-  -b, --body TEXT      Email body (plain text)
-  --html TEXT          Email body (HTML)
-  -f, --body-file FILE Read body from file
-  --template NAME      Use predefined template
-  -p, --param K=V      Template parameter (can be used multiple times)
-
-Sender Options:
-  --from EMAIL         Override sender email
-  --account NAME       Use a specific account from .env (see --list-accounts)
-  --provider KEY       Email provider preset
-
-Contact Management:
-  --save-contact NAME EMAIL    Save a contact
-  --delete-contact NAME        Delete a contact
-  --list-contacts              List all contacts
-  --auto-save-contact N E      Auto-save contact (no overwrite)
-  --sync-contacts              Scan IMAP sent folder (experimental)
-
-Attachments:
-  -a, --attach FILE    Attach file (can be used multiple times)
-
-Other:
-  -i, --interactive    Interactive setup mode
-  --list-accounts      List all configured accounts from .env
-  --list-providers     List all supported providers
-  --list-templates     List all predefined templates
-  --send-log           Show recent send history
-  --save-config        Save credentials to .env
-```
-
-## Migration for Other Users
-
-1. Copy `.env.example` to `.env`
-2. Set `EMAIL_PROVIDER` to your provider (see list above)
-3. Fill in your email and SMTP authorization code
-4. Run: `python send_email.py --to yourself@example.com -s "Test" -b "Hello"`
-5. Update paths in this file if the project moves
+- `CONTACTS.md` — 联系人系统详细使用说明
+- `TODO.md` — 当前重构和待办清单
+- 全局规则见 `~/.claude/rules/` 下的 Python 和通用规则

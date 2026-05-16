@@ -5,6 +5,7 @@
 # Runtime data (auto-generated)
 contacts.json
 send_log.csv
+*.lock
 
 # Environment
 .claude/
@@ -12,3 +13,6 @@ send_log.csv
 # Python
 __pycache__/
 *.pyc
+
+# Testing
+.pytest_cache/
