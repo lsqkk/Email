@@ -121,6 +121,7 @@ python send_email.py --to user@qq.com -s "Hi" -b "Hello" --provider qq
 
 发件人选项:
   --from EMAIL        覆盖发件人地址
+  --account NAME      使用 .env 中的指定账户
   --provider KEY      邮箱提供商预设
 
 联系人管理:
@@ -135,6 +136,7 @@ python send_email.py --to user@qq.com -s "Hi" -b "Hello" --provider qq
 
 其他:
   -i, --interactive   交互模式
+  --list-accounts     查看 .env 中配置的账户
   --list-providers    查看支持的邮箱
   --list-templates    查看邮件模板
   --send-log          查看发送记录

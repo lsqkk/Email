@@ -51,10 +51,23 @@ python D:/git/lsqkk/Email/send_email.py --to user@example.com --cc manager@examp
 python D:/git/lsqkk/Email/send_email.py --template meeting -p topic=周会 -p time="下午2点" -p location=会议室A
 ```
 
+### With a Specific Account (from .env)
+
+```bash
+# Use the default account (DEFAULT_ACCOUNT in .env)
+python D:/git/lsqkk/Email/send_email.py --to friend@example.com -s "Hi" -b "Body"
+
+# Use a named account
+python D:/git/lsqkk/Email/send_email.py --account qq --to friend@qq.com -s "你好" -b "正文"
+
+# List all configured accounts
+python D:/git/lsqkk/Email/send_email.py --list-accounts
+```
+
 ### With a Different Provider
 
 ```bash
-python D:/git/lsqkk/Email/send_email.py --to user@qq.com -s "Hi" -b "Body" --provider qq
+python D:/git/lsqkk/Email/send_email.py --to user@gmail.com -s "Hi" -b "Body" --provider gmail
 ```
 
 ### Send History
@@ -138,6 +151,7 @@ Email Content:
 
 Sender Options:
   --from EMAIL         Override sender email
+  --account NAME       Use a specific account from .env (see --list-accounts)
   --provider KEY       Email provider preset
 
 Contact Management:
@@ -152,6 +166,7 @@ Attachments:
 
 Other:
   -i, --interactive    Interactive setup mode
+  --list-accounts      List all configured accounts from .env
   --list-providers     List all supported providers
   --list-templates     List all predefined templates
   --send-log           Show recent send history

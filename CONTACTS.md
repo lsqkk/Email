@@ -4,7 +4,7 @@
 
 联系人存储在 `contacts.json` 文件（已 gitignore），格式为 `{"名称": "邮箱"}`。
 
-**使用前请复制 `contacts.json.example` 为 `contacts.json`**（或首次保存联系人时自动创建）。
+**首次使用前请复制 `contacts.json.example` 为 `contacts.json`**（或首次保存联系人时自动创建）。
 
 ## 在 Claude 中的使用
 

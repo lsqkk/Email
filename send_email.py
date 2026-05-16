@@ -230,14 +230,76 @@ SEND_LOG_FILE = BASE_DIR / "send_log.csv"
 # Config Helpers
 # =============================================================================
 def load_config():
-    """Load email config from .env file."""
+    """Load email config from .env file.
+
+    Supports two formats:
+
+    1. Simple (backward compatible):
+       EMAIL_ADDRESS=xxx
+       EMAIL_PASSWORD=xxx
+
+    2. Multi-account:
+       DEFAULT_ACCOUNT=163
+
+       [account:163]
+       EMAIL_ADDRESS=xxx@163.com
+       EMAIL_PASSWORD=xxx
+       EMAIL_PROVIDER=163
+
+       [account:qq]
+       EMAIL_ADDRESS=xxx@qq.com
+       EMAIL_PASSWORD=xxx
+       EMAIL_PROVIDER=qq
+
+    Returns:
+        Simple format → flat dict  e.g. {"EMAIL_ADDRESS": "..."}
+        Multi-account → dict with "_format", "_accounts", "_default_account" keys
+    """
     config = {}
-    if CONFIG_FILE.exists():
-        for line in CONFIG_FILE.read_text(encoding="utf-8").strip().splitlines():
+    if not CONFIG_FILE.exists():
+        return config
+
+    lines = CONFIG_FILE.read_text(encoding="utf-8").strip().splitlines()
+
+    # Detect format: look for [account:xxx] headers
+    has_sections = any(line.strip().startswith("[account:") for line in lines)
+
+    if not has_sections:
+        # Simple format (backward compatible)
+        for line in lines:
             line = line.strip()
             if line and not line.startswith("#") and "=" in line:
                 key, _, val = line.partition("=")
                 config[key.strip()] = val.strip().strip("\"'")
+        return config
+
+    # Multi-account format
+    current_account = None
+    accounts = {}
+    default_account = None
+
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        # Section header: [account:name]
+        m = re.match(r'^\[account:(\w+)\]$', line)
+        if m:
+            current_account = m.group(1)
+            accounts[current_account] = {}
+            continue
+        # Default account indicator
+        if line.startswith("DEFAULT_ACCOUNT="):
+            default_account = line.partition("=")[2].strip().strip("\"'")
+            continue
+        # key=value within a section
+        if current_account and "=" in line:
+            key, _, val = line.partition("=")
+            accounts[current_account][key.strip()] = val.strip().strip("\"'")
+
+    config["_format"] = "multi"
+    config["_accounts"] = accounts
+    config["_default_account"] = default_account or (next(iter(accounts)) if accounts else None)
     return config
 
 
@@ -300,6 +362,52 @@ def resolve_imap_settings(config, provider_override=None):
     if not imap_server:
         return None
     return {"imap_server": imap_server, "imap_port": provider.get("imap_port", 993)}
+
+
+def get_account_config(config, account_name=None):
+    """Get config dict for a specific account, or the default account.
+
+    For simple-format configs, returns the config as-is.
+    For multi-account configs, resolves the named (or default) account.
+    """
+    if config.get("_format") != "multi":
+        return config  # simple format
+
+    accounts = config.get("_accounts", {})
+    if not account_name:
+        account_name = config.get("_default_account")
+
+    account = accounts.get(account_name)
+    if not account:
+        available = ", ".join(accounts.keys()) if accounts else "(none)"
+        print(f"[!] Account '{account_name}' not found. Available accounts: {available}")
+        print(f"    Use --account NAME to select, or see --list-accounts")
+        sys.exit(1)
+
+    return account
+
+
+def list_accounts():
+    """Return formatted list of accounts from config."""
+    config = load_config()
+    if config.get("_format") != "multi":
+        addr = config.get("EMAIL_ADDRESS", "(not configured)")
+        prov = config.get("EMAIL_PROVIDER", "?")
+        return f"Default: {addr} ({prov})  [single-account mode]"
+
+    accounts = config.get("_accounts", {})
+    default = config.get("_default_account")
+    if not accounts:
+        return "No accounts configured."
+
+    lines = []
+    for name in sorted(accounts):
+        a = accounts[name]
+        addr = a.get("EMAIL_ADDRESS", "?")
+        prov = a.get("EMAIL_PROVIDER", "?")
+        marker = " ← DEFAULT" if name == default else ""
+        lines.append(f"  {name:<12} {addr:<35} {prov}{marker}")
+    return "\n".join(lines)
 
 
 # =============================================================================
@@ -708,11 +816,31 @@ def send_email(sender, password, recipient, subject, body,
 def interactive_mode():
     """Interactive setup and send mode."""
     config = load_config()
-    sender = config.get("EMAIL_ADDRESS") or ""
-    password = config.get("EMAIL_PASSWORD") or ""
 
-    print("=== Email Sender Interactive Setup ===")
-    print()
+    # ── Account selection ────────────────────────────────────────────────
+    if config.get("_format") == "multi":
+        accounts = config.get("_accounts", {})
+        default = config.get("_default_account")
+        print("=== Email Sender Interactive Setup ===")
+        print()
+        print("Configured accounts:")
+        for name in sorted(accounts):
+            a = accounts[name]
+            marker = " ← DEFAULT" if name == default else ""
+            print(f"  {name:<12} {a.get('EMAIL_ADDRESS', '?'):<35}{marker}")
+        print()
+        sel = input(f"Select account [{default}]: ").strip()
+        account_name = sel or default
+        account = get_account_config(config, account_name)
+        print(f"  Using: {account_name} → {account.get('EMAIL_ADDRESS')}")
+    else:
+        account = config
+        account_name = "default"
+        print("=== Email Sender Interactive Setup ===")
+        print()
+
+    sender = account.get("EMAIL_ADDRESS") or ""
+    password = account.get("EMAIL_PASSWORD") or ""
 
     if not sender:
         sender = input("Your email address (e.g., jsxzznz@163.com): ").strip()
@@ -725,7 +853,7 @@ def interactive_mode():
         print("Password: [already configured]")
 
     # Provider selection
-    provider_key = config.get("EMAIL_PROVIDER", DEFAULT_PROVIDER)
+    provider_key = account.get("EMAIL_PROVIDER", DEFAULT_PROVIDER)
     provider = PROVIDERS.get(provider_key, PROVIDERS[DEFAULT_PROVIDER])
     print(f"Provider: {provider['name']} ({provider['smtp_server']}:{provider['smtp_port']})")
     switch = input(f"Switch provider? (Enter to keep, or type provider key like 'qq'/'gmail'): ").strip()
@@ -756,15 +884,31 @@ def interactive_mode():
 
     save = input("\nSave credentials for future use? (y/N): ").strip().lower()
     if save == "y":
-        smtp = resolve_smtp_settings(config, provider_key)
-        content = f"""# Email Sender Configuration
+        smtp = resolve_smtp_settings(account, provider_key)
+        if config.get("_format") == "multi":
+            # Update the account in-place and re-save
+            accounts = config["_accounts"]
+            accounts[account_name] = {
+                "EMAIL_ADDRESS": sender,
+                "EMAIL_PASSWORD": password,
+                "EMAIL_PROVIDER": provider_key,
+            }
+            lines = [f"DEFAULT_ACCOUNT={config['_default_account']}", ""]
+            for name, acct in accounts.items():
+                lines.append(f"[account:{name}]")
+                for k, v in acct.items():
+                    lines.append(f"{k}={v}")
+                lines.append("")
+            CONFIG_FILE.write_text("\n".join(lines), encoding="utf-8")
+        else:
+            content = f"""# Email Sender Configuration
 EMAIL_ADDRESS={sender}
 EMAIL_PASSWORD={password}
 EMAIL_PROVIDER={provider_key}
 SMTP_SERVER={smtp["smtp_server"]}
 SMTP_PORT={smtp["smtp_port"]}
 """
-        CONFIG_FILE.write_text(content, encoding="utf-8")
+            CONFIG_FILE.write_text(content, encoding="utf-8")
         print(f"[OK] Config saved to {CONFIG_FILE}")
 
     # Auto-save contact
@@ -777,7 +921,7 @@ SMTP_PORT={smtp["smtp_port"]}
                 add_contact(name, recipient)
 
     print()
-    smtp = resolve_smtp_settings(config, provider_key)
+    smtp = resolve_smtp_settings(account, provider_key)
     result = send_email(sender, password, recipient, subject, body,
                         attachments=attachments, cc=cc_list,
                         smtp_server=smtp["smtp_server"],
@@ -838,6 +982,7 @@ def main():
 
     # Sender options
     parser.add_argument("--from", dest="sender", help="Sender email (override config)")
+    parser.add_argument("--account", help="Account name from .env to use (see --list-accounts)")
     parser.add_argument("--provider", choices=list(PROVIDERS.keys()),
                         help="Email provider preset (overrides config)")
 
@@ -861,6 +1006,8 @@ def main():
     parser.add_argument("--interactive", "-i", action="store_true", help="Interactive setup mode")
     parser.add_argument("--save-config", action="store_true", help="Save credentials to .env")
 
+    parser.add_argument("--list-accounts", action="store_true",
+                        help="List all configured email accounts from .env")
     parser.add_argument("--list-providers", action="store_true",
                         help="List all supported email providers")
     parser.add_argument("--list-templates", action="store_true",
@@ -872,6 +1019,9 @@ def main():
     args = parser.parse_args()
 
     # ── Information-only commands ──────────────────────────────────────────
+    if args.list_accounts:
+        print(list_accounts())
+        return
     if args.list_providers:
         print(list_providers())
         return
@@ -905,13 +1055,15 @@ def main():
     # ── IMAP Contact Sync ────────────────────────────────────────────────
     if args.sync_contacts:
         config = load_config()
-        sender = args.sender or config.get("EMAIL_ADDRESS")
-        password = config.get("EMAIL_PASSWORD")
+        account = get_account_config(config, args.account)
+        sender = args.sender or account.get("EMAIL_ADDRESS")
+        password = account.get("EMAIL_PASSWORD")
+        provider_override = args.provider or account.get("EMAIL_PROVIDER")
         if not sender or not password:
             print("[!] Credentials required for IMAP sync. Configure .env first.")
             sys.exit(1)
         print(f"[*] Scanning sent folder for {sender}...")
-        count, msg = sync_contacts_from_sent(sender, password, args.provider)
+        count, msg = sync_contacts_from_sent(sender, password, provider_override)
         print(f"[{'OK' if count else 'i'}] {msg}")
         return
 
@@ -922,15 +1074,19 @@ def main():
 
     # ── Send email ────────────────────────────────────────────────────────
     config = load_config()
-    sender = args.sender or config.get("EMAIL_ADDRESS") or os.environ.get("EMAIL_ADDRESS")
-    password = config.get("EMAIL_PASSWORD") or os.environ.get("EMAIL_PASSWORD")
+
+    # Resolve account → sender credentials
+    account = get_account_config(config, args.account)
+    sender = args.sender or account.get("EMAIL_ADDRESS") or os.environ.get("EMAIL_ADDRESS")
+    password = account.get("EMAIL_PASSWORD") or os.environ.get("EMAIL_PASSWORD")
+    provider_override = args.provider or account.get("EMAIL_PROVIDER")
 
     if not sender or not password:
         print("[!] No credentials configured. Run with --interactive to set up.")
         sys.exit(1)
 
     # Resolve SMTP settings
-    smtp = resolve_smtp_settings(config, args.provider)
+    smtp = resolve_smtp_settings(account, provider_override)
 
     # Resolve recipient
     if args.contact:
