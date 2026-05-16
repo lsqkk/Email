@@ -12,7 +12,7 @@
 </p>
 
 **纯 Python 标准库实现，开箱即用的 SMTP 命令行邮件工具。**  
-支持 17 个主流邮箱提供商、联系人系统、HTML+纯文本双渲染、批量邮件合并，以及 IMAP 收件箱读取。
+支持 17 个主流邮箱提供商、联系人系统、HTML+纯文本双渲染、批量邮件合并，以及 IMAP/POP3 收件箱读取。
 
 ---
 
@@ -28,7 +28,7 @@
 | 👥 **联系人系统** | 按名称发送、模糊查找、文件锁并发安全 |
 | 📨 **HTML + 纯文本** | `multipart/alternative` 双渲染，客户端兼容性最佳 |
 | 📋 **批量发送** | 从文件读取收件人列表，支持 `{name}` 个性化模板 |
-| 🗂️ **IMAP 收件** | 读取收件箱邮件，预览正文摘要 |
+| 🗂️ **IMAP/POP3 收件** | 读取收件箱邮件，预览正文摘要，自动协议降级 |
 | 🔄 **自动重试** | 网络波动自动重试 2 次，指数退避 |
 | 📊 **发送日志** | CSV 格式历史记录，自动轮转不撑爆 |
 | 🤖 **AGENT 友好** | 完整 `--json` 输出模式，规范退出码，Dry-Run 预览 |
@@ -86,8 +86,12 @@ python send_email.py --to-list recipients.txt -s "通知" -b "正文" --throttle
 ### 4. 读取收件箱
 
 ```bash
-# 读取最近的 5 封邮件
+# 读取最近的 5 封邮件（自动 IMAP，失败则降级 POP3）
 python send_email.py --read-inbox 5
+
+# 强制指定协议
+python send_email.py --read-inbox 5 --protocol imap
+python send_email.py --read-inbox 5 --protocol pop3
 
 # JSON 格式输出（AGENT 解析用）
 python send_email.py --read-inbox 5 --json
@@ -141,6 +145,8 @@ python send_email.py --to-list users.txt --subject-template "Hi {name}" --body-t
 # ── 收件 ──────────────────────────────────────────
 python send_email.py --read-inbox
 python send_email.py --read-inbox 20
+python send_email.py --read-inbox 5 --protocol pop3
+python send_email.py --read-inbox 5 --protocol imap
 
 # ── 联系人 ────────────────────────────────────────
 python send_email.py --save-contact "张三" "zhangsan@qq.com"
@@ -209,7 +215,7 @@ python send_email.py --provider gmail --to user@gmail.com -s "Hi" -b "Hello"
 ## ⚙️ Python API
 
 ```python
-from email_sender import send_email, send_batch, read_inbox
+from email_sender import send_email, send_batch, read_inbox, read_inbox_pop3
 
 # 单发
 result = send_email(
@@ -235,10 +241,13 @@ result = send_batch(
 )
 print(f"成功: {result.succeeded}/{result.total}")
 
-# 读取收件箱
+# 读取收件箱（IMAP，自动 ID 命令适配）
 emails = read_inbox("me@163.com", "auth_code", max_emails=5)
 for mail in emails:
     print(f"{mail['date']}  {mail['from']}  {mail['subject']}")
+
+# 读取收件箱（POP3）
+emails = read_inbox_pop3("me@163.com", "auth_code", max_emails=5)
 ```
 
 ## 🏗️ 项目结构
@@ -251,7 +260,7 @@ Email/
 │   ├── contacts.py          # 联系人管理（并发安全）
 │   ├── templates.py         # 邮件模板
 │   ├── smtp_client.py       # SMTP 发信核心
-│   ├── imap_client.py       # IMAP 收件
+│   ├── imap_client.py       # IMAP/POP3 收件 + 联系人同步
 │   ├── log.py               # 发送记录
 │   ├── utils.py             # 校验 / 工具函数
 │   └── types.py             # 类型定义

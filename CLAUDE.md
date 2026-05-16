@@ -23,7 +23,7 @@ Email/
 │   ├── contacts.py            # 联系人 CRUD + 文件锁并发安全
 │   ├── templates.py           # 邮件模板（5个内置模板 + 缺失参数检测）
 │   ├── smtp_client.py         # SMTP 核心（发信/批量/HTML双渲染/重试/附件校验）
-│   ├── imap_client.py         # IMAP 操作（收件箱读取/联系人同步）
+│   ├── imap_client.py         # IMAP/POP3 操作（收件箱读取/联系人同步）
 │   ├── log.py                 # 发送记录 CSV + 自动轮转
 │   └── utils.py               # 校验/格式化/HTML转纯文本
 ├── tests/                     # pytest 测试
@@ -99,7 +99,7 @@ def send_email(sender, password, recipient, ...):
 ## 关键 API 速查
 
 ```python
-from email_sender import send_email, send_batch, read_inbox, load_config
+from email_sender import send_email, send_batch, read_inbox, read_inbox_pop3, load_config
 
 # 单发
 result = send_email(sender="a@163.com", password="xxx", recipient="b@qq.com",
@@ -110,8 +110,11 @@ result = send_batch(sender="a@163.com", password="xxx",
                     recipients=["b@qq.com", "c@qq.com"],
                     subject="通知", body="正文", throttle=0.5)
 
-# 读取收件箱
+# 读取收件箱（IMAP，自动 ID 命令适配）
 emails = read_inbox("a@163.com", "xxx", max_emails=5)
+
+# 读取收件箱（POP3）
+emails = read_inbox_pop3("a@163.com", "xxx", max_emails=5)
 
 # 结果解析
 print(result.success, result.message, result.detail)
