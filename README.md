@@ -2,7 +2,7 @@
 
 # ✉️ Email Sender
 
-**零依赖 · 多邮箱 · 批量发信 · IMAP收件 · AGENT友好**
+**零依赖 · 多邮箱 · 批量发信 · IMAP/POP3 收件 · AGENT 友好**
 
 <p>
   <img src="https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white" alt="Python 3.10+">
@@ -11,12 +11,23 @@
   <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License">
 </p>
 
-**纯 Python 标准库实现，开箱即用的 SMTP 命令行邮件工具。**  
-支持 17 个主流邮箱提供商、联系人系统、HTML+纯文本双渲染、批量邮件合并，以及 IMAP/POP3 收件箱读取。
+纯 Python 标准库实现，开箱即用的 SMTP 命令行邮件工具。
+支持 17 个主流邮箱提供商、联系人管理、HTML+纯文本双渲染、批量模板合并、IMAP/POP3 收件与附件下载。
 
 ---
 
 </div>
+
+## 目录
+
+- [功能亮点](#-功能亮点)
+- [快速开始](#-快速开始)
+- [AGENT 调用模式](#-agent-调用模式)
+- [常用命令速查](#-常用命令速查)
+- [模板系统](#-模板系统)
+- [支持的邮箱提供商](#-支持的邮箱提供商)
+- [Python API](#-python-api)
+- [项目结构](#-项目结构)
 
 ## ✨ 功能亮点
 
@@ -27,11 +38,12 @@
 | 📎 **附件支持** | 多文件附件，自动大小校验（默认 25MB 上限） |
 | 👥 **联系人系统** | 按名称发送、模糊查找、文件锁并发安全 |
 | 📨 **HTML + 纯文本** | `multipart/alternative` 双渲染，客户端兼容性最佳 |
-| 📋 **批量发送** | 从文件读取收件人列表，支持 `{name}` 个性化模板 |
-| 🗂️ **IMAP/POP3 收件** | 读取收件箱邮件，预览正文摘要，自动协议降级 |
+| 📋 **批量发送** | 从文件读取收件人，支持 `{name}` 个性化模板 |
+| 🗂️ **IMAP/POP3 收件** | 读取收件箱，正文摘要，自动协议降级 |
+| 📩 **附件下载** | 通过 Message-ID 精准下载邮件附件 |
 | 🔄 **自动重试** | 网络波动自动重试 2 次，指数退避 |
 | 📊 **发送日志** | CSV 格式历史记录，自动轮转不撑爆 |
-| 🤖 **AGENT 友好** | 完整 `--json` 输出模式，规范退出码，Dry-Run 预览 |
+| 🤖 **AGENT 友好** | `--json` 输出、规范退出码、Dry-Run 预览 |
 
 ## 🚀 快速开始
 
@@ -41,13 +53,12 @@
 # 复制配置模板
 cp .env.example .env
 
-# 编辑 .env，填写你的邮箱信息和 SMTP 授权码
-# 支持多账户：163、QQ、Gmail 等
+# 编辑 .env，填写邮箱信息和 SMTP 授权码
 ```
 
-> 🔐 使用 **SMTP 授权码**而非登录密码。  
-> 163邮箱：设置 → POP3/SMTP/IMAP → 开启SMTP服务 → 生成授权码  
-> QQ邮箱：设置 → 账户 → POP3/SMTP服务 → 生成授权码  
+> 🔐 使用 **SMTP 授权码**而非登录密码。
+> - 163 邮箱：设置 → POP3/SMTP/IMAP → 开启 SMTP 服务 → 生成授权码
+> - QQ 邮箱：设置 → 账户 → POP3/SMTP 服务 → 生成授权码
 
 ### 2. 发一封邮件
 
@@ -72,9 +83,8 @@ python send_email.py --contact 张三 -s "你好" -b "好久不见"
 # 准备收件人列表文件 recipients.txt：
 # lilei@qq.com
 # hanmeimei@163.com
-# wangwu@gmail.com
 
-# 批量发送，每人收到独立的邮件
+# 每人收到独立的个性化邮件
 python send_email.py --to-list recipients.txt -s "会议通知" \
   --subject-template "会议通知 - {name}" \
   --body-template "{name}，请于本周五下午2点参加周会。"
@@ -86,30 +96,33 @@ python send_email.py --to-list recipients.txt -s "通知" -b "正文" --throttle
 ### 4. 读取收件箱
 
 ```bash
-# 读取最近的 5 封邮件（自动 IMAP，失败则降级 POP3）
+# 读取最近 5 封邮件（自动 IMAP，失败降级 POP3）
 python send_email.py --read-inbox 5
 
 # 强制指定协议
 python send_email.py --read-inbox 5 --protocol imap
 python send_email.py --read-inbox 5 --protocol pop3
 
-# JSON 格式输出（AGENT 解析用）
+# JSON 格式输出
 python send_email.py --read-inbox 5 --json
+
+# 下载某封邮件的附件（通过 Message-ID）
+python send_email.py --download-attach "<msg-id@domain>" --attach-dir ./attachments
 ```
 
 ## 🤖 AGENT 调用模式
 
-本工具为 **AGENT 调用**场景专门设计：
+专为 AGENT 调用场景设计，输出机器可解析：
 
 ```bash
-# JSON 输出，AGENT 直接解析
+# JSON 输出，直接解析
 python send_email.py --json --to user@test.com -s "Hi" -b "Hello"
-# → {"success": true, "message": "Email sent to user@test.com", "recipient": "user@test.com", "message_id": "<...>"}
+# → {"success": true, "message": "Email sent to user@test.com", ...}
 
 # Dry-Run 预览，不实际发送
 python send_email.py --dry-run --to user@test.com -s "测试" -b "正文"
 
-# 静默模式，仅输出关键信息
+# 静默模式
 python send_email.py --quiet --to user@test.com -s "Hi" -b "Body"
 
 # Python API 调用
@@ -136,7 +149,7 @@ print(r.success, r.message)
 python send_email.py --to user@163.com -s "主题" -b "正文"
 python send_email.py --contact 张三 -s "你好" -b "好久不见"
 python send_email.py --template meeting -p topic=周会 -p time="下午2点"
-python send_email.py --reply "<prev-msg-id@domain>" --to user@163.com -s "Re: 讨论"
+python send_email.py --reply "<msg-id>" --to user@163.com -s "Re: 讨论"
 
 # ── 批量 ──────────────────────────────────────────
 python send_email.py --to-list users.txt -s "通知"
@@ -146,7 +159,7 @@ python send_email.py --to-list users.txt --subject-template "Hi {name}" --body-t
 python send_email.py --read-inbox
 python send_email.py --read-inbox 20
 python send_email.py --read-inbox 5 --protocol pop3
-python send_email.py --read-inbox 5 --protocol imap
+python send_email.py --download-attach "<msg-id>" --attach-dir ./attachments
 
 # ── 联系人 ────────────────────────────────────────
 python send_email.py --save-contact "张三" "zhangsan@qq.com"
@@ -161,8 +174,8 @@ python send_email.py --send-log
 
 # ── 高级 ──────────────────────────────────────────
 python send_email.py --html "<h1>标题</h1>" --to user@163.com -s "富文本"
-python send_email.py --dry-run --to user@test.com -s "测试"  # 不发送
-python send_email.py --json --to user@test.com -s "Hi" -b "Hello"  # JSON输出
+python send_email.py --dry-run --to user@test.com -s "测试"
+python send_email.py --json --to user@test.com -s "Hi" -b "Hello"
 python send_email.py --account qq --to friend@qq.com -s "用QQ发"
 python send_email.py --provider gmail --to user@gmail.com -s "Via Gmail"
 ```
@@ -215,7 +228,7 @@ python send_email.py --provider gmail --to user@gmail.com -s "Hi" -b "Hello"
 ## ⚙️ Python API
 
 ```python
-from email_sender import send_email, send_batch, read_inbox, read_inbox_pop3
+from email_sender import send_email, send_batch, read_inbox, download_attachments
 
 # 单发
 result = send_email(
@@ -224,7 +237,7 @@ result = send_email(
     recipient="friend@qq.com",
     subject="来自 Python 的邮件",
     body="正文",
-    body_html="<h1>正文</h1>",      # 可选 HTML
+    body_html="<h1>正文</h1>",       # 可选 HTML
     attachments=["report.pdf"],
     cc=["manager@163.com"],
 )
@@ -237,17 +250,23 @@ result = send_batch(
     recipients=["a@qq.com", "b@163.com"],
     subject="批量通知",
     body="正文",
-    throttle=0.5,  # 间隔 0.5 秒
+    throttle=0.5,                     # 间隔 0.5 秒
 )
 print(f"成功: {result.succeeded}/{result.total}")
 
-# 读取收件箱（IMAP，自动 ID 命令适配）
+# 读取收件箱（IMAP）
 emails = read_inbox("me@163.com", "auth_code", max_emails=5)
 for mail in emails:
     print(f"{mail['date']}  {mail['from']}  {mail['subject']}")
 
-# 读取收件箱（POP3）
-emails = read_inbox_pop3("me@163.com", "auth_code", max_emails=5)
+# 下载附件
+saved = download_attachments(
+    "me@163.com", "auth_code",
+    message_id="<msg-id@domain>",
+    save_dir="./attachments",
+)
+for s in saved:
+    print(f"{s['filename']} ({s['size']/1024:.1f} KB)")
 ```
 
 ## 🏗️ 项目结构
@@ -256,21 +275,21 @@ emails = read_inbox_pop3("me@163.com", "auth_code", max_emails=5)
 Email/
 ├── send_email.py            # CLI 入口
 ├── email_sender/            # 核心包
-│   ├── config.py            # 配置 + 17个邮箱提供商预设
+│   ├── config.py            # 配置 + 17 个邮箱提供商预设
 │   ├── contacts.py          # 联系人管理（并发安全）
 │   ├── templates.py         # 邮件模板
 │   ├── smtp_client.py       # SMTP 发信核心
-│   ├── imap_client.py       # IMAP/POP3 收件 + 联系人同步
+│   ├── imap_client.py       # IMAP/POP3 收件 + 联系人同步 + 附件下载
 │   ├── log.py               # 发送记录
 │   ├── utils.py             # 校验 / 工具函数
 │   └── types.py             # 类型定义
-├── tests/                   # 测试
+├── tests/                   # pytest 测试
 └── .env.example             # 配置模板
 ```
 
 ## 📄 许可证
 
-MIT License. 自由使用、修改、分发。
+MIT License.
 
 ---
 
