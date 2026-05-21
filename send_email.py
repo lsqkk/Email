@@ -30,7 +30,7 @@ from email_sender import (
     add_contact, delete_contact, list_contacts, find_contact, auto_save_contact,
     apply_template,
     send_email, send_batch,
-    sync_contacts_from_sent, read_inbox, read_inbox_pop3,
+    sync_contacts_from_sent, read_inbox, read_inbox_pop3, download_attachments,
     append_send_log, show_send_log,
     is_valid_email, validate_attachment, get_password,
 )
@@ -161,6 +161,10 @@ def build_parser() -> argparse.ArgumentParser:
                       help="Read recent emails from inbox (optionally specify count)")
     imap.add_argument("--protocol", choices=["imap", "pop3"], default=None,
                       help="Protocol for inbox reading (default: imap, fallback to pop3 if imap fails)")
+    imap.add_argument("--download-attach", metavar="MSG_ID",
+                      help="Download attachments from an email by Message-ID")
+    imap.add_argument("--attach-dir", default=".",
+                      help="Directory to save downloaded attachments (default: current dir)")
 
     # ── Info commands ────────────────────────────────────────────────────
     info = parser.add_argument_group("Information")
@@ -325,8 +329,49 @@ def main() -> None:
                 if preview:
                     print(f"     {preview}")
                 if em.get('attachments'):
-                    print(f"     Attachments: {', '.join(em['attachments'])}")
+                    attach_list = em['attachments']
+                    if attach_list and isinstance(attach_list[0], dict):
+                        names = [a['filename'] for a in attach_list]
+                        sizes = [a.get('size', 0) for a in attach_list]
+                        print(f"     Attachments: {', '.join(names)}")
+                        if any(sizes):
+                            total_size = sum(sizes)
+                            print(f"     Total size: {total_size/1024/1024:.1f} MB")
+                    else:
+                        print(f"     Attachments: {', '.join(attach_list)}")
                 print()
+        return
+
+    # ── Download Attachments ──────────────────────────────────────────────
+    if args.download_attach:
+        config = load_config()
+        account = get_account_config(config, args.account)
+        sender = args.sender or account.get("EMAIL_ADDRESS")
+        password = account.get("EMAIL_PASSWORD")
+        provider_override = args.provider or account.get("EMAIL_PROVIDER")
+        if not sender or not password:
+            msg = "Credentials required. Configure .env first."
+            if args.json:
+                _json_exit({"success": False, "message": msg}, 1)
+            print(f"[!] {msg}")
+            sys.exit(1)
+
+        logger.info("Downloading attachments from message %s ...", args.download_attach)
+        saved = download_attachments(
+            sender, password,
+            message_id=args.download_attach,
+            save_dir=args.attach_dir,
+            provider_key=provider_override,
+        )
+        if args.json:
+            _json_exit({"success": True, "downloaded": saved})
+
+        if not saved:
+            print("No attachments found or download failed.")
+        else:
+            print(f"Downloaded {len(saved)} attachment(s) to: {args.attach_dir}")
+            for s in saved:
+                print(f"  {s['filename']} ({s['size']/1024:.1f} KB) -> {s['path']}")
         return
 
     # ── Interactive mode ─────────────────────────────────────────────────

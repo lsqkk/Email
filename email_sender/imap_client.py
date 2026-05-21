@@ -5,8 +5,10 @@ from __future__ import annotations
 import email as email_lib
 import imaplib
 import logging
+import os
 import poplib
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Optional
 
 from email_sender.config import (
@@ -88,6 +90,109 @@ def _find_folder(mail: imaplib.IMAP4_SSL, candidates: list[str]) -> Optional[str
         except imaplib.IMAP4.error:
             continue
     return None
+
+
+def download_attachments(
+    email_address: str,
+    password: str,
+    message_id: str,
+    save_dir: str = ".",
+    provider_key: Optional[str] = None,
+    folder: str = "INBOX",
+) -> list[dict[str, object]]:
+    """Download attachments from a specific email by Message-ID.
+
+    Args:
+        email_address: IMAP login email
+        password: IMAP password
+        message_id: The Message-ID header value to match
+        save_dir: Directory to save attachments to
+        provider_key: Provider key (auto-detected from config if None)
+        folder: IMAP folder to search in (default: INBOX)
+
+    Returns:
+        List of dicts with keys: filename, path, size
+    """
+    mail = _connect_imap(email_address, password, provider_key)
+    if not mail:
+        return []
+
+    saved = []
+    try:
+        status, _ = mail.select(folder)
+        if status != "OK":
+            logger.error("Could not select folder: %s", folder)
+            return []
+
+        # Search by Message-ID header
+        status, ids = mail.search(None, f'HEADER Message-ID "{message_id}"')
+        if status != "OK" or not ids[0]:
+            logger.error("Message not found: %s", message_id)
+            return []
+
+        for mid in ids[0].split():
+            status, data = mail.fetch(mid, "(BODY.PEEK[])")
+            if status != "OK":
+                continue
+
+            msg = email_lib.message_from_bytes(data[0][1])
+            if not msg.is_multipart():
+                continue
+
+            save_path = Path(save_dir)
+            save_path.mkdir(parents=True, exist_ok=True)
+
+            for part in msg.walk():
+                fn = None
+                if part.get_content_disposition() == "attachment":
+                    fn = part.get_filename()
+                else:
+                    fn = part.get_param("name")
+
+                if not fn:
+                    continue
+
+                # Decode filename
+                try:
+                    fn_parts = email_lib.header.decode_header(fn)
+                    fn = "".join(
+                        (p.decode(c or "utf-8") if isinstance(p, bytes) else p)
+                        for p, c in fn_parts
+                    )
+                except Exception:
+                    pass
+
+                payload = part.get_payload(decode=True)
+                if not payload:
+                    continue
+
+                # Avoid name collision
+                final_path = save_path / fn
+                counter = 1
+                while final_path.exists():
+                    stem = Path(fn).stem
+                    suffix = Path(fn).suffix
+                    final_path = save_path / f"{stem}_{counter}{suffix}"
+                    counter += 1
+
+                final_path.write_bytes(payload)
+                saved.append({
+                    "filename": fn,
+                    "path": str(final_path),
+                    "size": len(payload),
+                })
+                logger.info("Saved attachment: %s (%d bytes)", final_path, len(payload))
+
+    except Exception as e:
+        logger.error("Failed to download attachments: %s", e)
+        return saved
+    finally:
+        try:
+            mail.logout()
+        except Exception:
+            pass
+
+    return saved
 
 
 def sync_contacts_from_sent(
@@ -225,6 +330,17 @@ def read_inbox(
                 date = msg.get("Date", "")
                 message_id = msg.get("Message-ID", "")
 
+                # Decode subject
+                from email.header import decode_header
+                try:
+                    subj_parts = decode_header(subject)
+                    subject = "".join(
+                        (part.decode(charset or "utf-8") if isinstance(part, bytes) else part)
+                        for part, charset in subj_parts
+                    )
+                except Exception:
+                    pass
+
                 # Extract body preview (prefer plain text)
                 body_preview = ""
                 if msg.is_multipart():
@@ -245,12 +361,40 @@ def read_inbox(
                             errors="replace",
                         )[:200]
 
+                # Check for attachments
+                attachments_info: list[dict[str, object]] = []
+                if msg.is_multipart():
+                    for part in msg.walk():
+                        fn = None
+                        if part.get_content_disposition() == "attachment":
+                            fn = part.get_filename()
+                        elif part.get_content_type() not in (
+                            "text/plain", "text/html",
+                        ):
+                            fn = part.get_param("name")
+                        if fn:
+                            try:
+                                fn_parts = email_lib.header.decode_header(fn)
+                                fn = "".join(
+                                    (p.decode(c or "utf-8") if isinstance(p, bytes) else p)
+                                    for p, c in fn_parts
+                                )
+                            except Exception:
+                                pass
+                            payload = part.get_payload(decode=True)
+                            attachments_info.append({
+                                "filename": fn,
+                                "size": len(payload) if payload else 0,
+                                "mime": part.get_content_type(),
+                            })
+
                 emails.append({
                     "message_id": message_id,
                     "subject": subject,
                     "from": from_,
                     "date": date,
                     "body_preview": body_preview,
+                    "attachments": attachments_info,
                 })
             except Exception:
                 continue
@@ -356,26 +500,31 @@ def read_inbox_pop3(
                             body_preview = payload.decode("utf-8", errors="replace")[:500]
 
                 # Check for attachments
-                attachments: list[str] = []
+                attachments_info: list[dict[str, object]] = []
                 if msg.is_multipart():
                     for part in msg.walk():
+                        fn = None
                         if part.get_content_disposition() == "attachment":
                             fn = part.get_filename()
-                            if fn:
-                                try:
-                                    fn_parts = email_lib.header.decode_header(fn)
-                                    fn = "".join(
-                                        (p.decode(c or "utf-8") if isinstance(p, bytes) else p)
-                                        for p, c in fn_parts
-                                    )
-                                except Exception:
-                                    pass
-                                attachments.append(fn)
-                            elif part.get_content_type() != "text/plain" and part.get_content_type() != "text/html":
-                                # Inline parts with names
-                                fn = part.get_param("name")
-                                if fn:
-                                    attachments.append(fn)
+                        elif part.get_content_type() not in (
+                            "text/plain", "text/html",
+                        ):
+                            fn = part.get_param("name")
+                        if fn:
+                            try:
+                                fn_parts = email_lib.header.decode_header(fn)
+                                fn = "".join(
+                                    (p.decode(c or "utf-8") if isinstance(p, bytes) else p)
+                                    for p, c in fn_parts
+                                )
+                            except Exception:
+                                pass
+                            payload = part.get_payload(decode=True)
+                            attachments_info.append({
+                                "filename": fn,
+                                "size": len(payload) if payload else 0,
+                                "mime": part.get_content_type(),
+                            })
 
                 emails.append({
                     "message_id": message_id,
@@ -383,7 +532,7 @@ def read_inbox_pop3(
                     "from": from_,
                     "date": date,
                     "body_preview": body_preview[:200] if body_preview else "",
-                    "attachments": attachments,
+                    "attachments": attachments_info,
                 })
             except Exception:
                 continue
